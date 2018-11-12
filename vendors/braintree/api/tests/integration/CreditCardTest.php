@@ -18,6 +18,9 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $this->assertEquals('5100', $result->creditCard->last4);
         $this->assertEquals('Cardholder', $result->creditCard->cardholderName);
         $this->assertEquals('05/2012', $result->creditCard->expirationDate);
+        $this->assertEquals(1, preg_match('/\A\w{32}\z/', $result->creditCard->uniqueNumberIdentifier));
+        $this->assertFalse($result->creditCard->isVenmoSdk());
+        $this->assertEquals(1, preg_match('/png/', $result->creditCard->imageUrl));
     }
 
     function testCreate_withDefault()
@@ -44,6 +47,21 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $card1 = Braintree_CreditCard::find($card1->token);
         $this->assertFalse($card1->isDefault());
         $this->assertTrue($card2->isDefault());
+    }
+
+    function testCreate_withSecurityParams()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'deviceSessionId' => 'abc_123',
+            'fraudMerchantId' => '456',
+            'cardholderName' => 'Cardholder',
+            'number' => '5105105105105100',
+            'expirationDate' => '05/12'
+        ));
+
+        $this->assertTrue($result->success);
     }
 
     function testCreate_withExpirationMonthAndYear()
@@ -79,6 +97,25 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $this->assertEquals($token, Braintree_CreditCard::find($token)->token);
     }
 
+    function testCreate_withDuplicateCardCheck()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+
+        $attributes = array(
+            'customerId' => $customer->id,
+            'number' => '5105105105105100',
+            'expirationDate' => '05/2011',
+            'options' => array('failOnDuplicatePaymentMethod' => true)
+        );
+        Braintree_CreditCard::create($attributes);
+
+        $result = Braintree_CreditCard::create($attributes);
+        $this->assertFalse($result->success);
+        $errors = $result->errors->forKey('creditCard')->onAttribute('number');
+        $this->assertEquals(Braintree_Error_Codes::CREDIT_CARD_DUPLICATE_CARD_EXISTS, $errors[0]->code);
+        $this->assertEquals(1, preg_match('/Duplicate card exists in the vault\./', $result->message));
+    }
+
     function testCreate_withCardVerification()
     {
         $customer = Braintree_Customer::createNoValidate();
@@ -96,6 +133,7 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $this->assertEquals(null, $result->creditCardVerification->avsErrorResponseCode);
         $this->assertEquals('I', $result->creditCardVerification->avsPostalCodeResponseCode);
         $this->assertEquals('I', $result->creditCardVerification->avsStreetAddressResponseCode);
+        $this->assertEquals(Braintree_CreditCard::PREPAID_UNKNOWN, $result->creditCardVerification->creditCard["prepaid"]);
     }
 
     function testCreate_withCardVerificationAndSpecificMerchantAccount()
@@ -161,6 +199,25 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $this->assertEquals('583', $address->countryCodeNumeric);
     }
 
+    function testCreate_withExistingBillingAddress()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $existingAddress = Braintree_Address::createNoValidate(array(
+            'customerId' => $customer->id,
+            'firstName' => 'John'
+        ));
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'number' => '5105105105105100',
+            'expirationDate' => '05/12',
+            'billingAddressId' => $existingAddress->id
+        ));
+        $this->assertTrue($result->success);
+        $address = $result->creditCard->billingAddress;
+        $this->assertEquals($existingAddress->id, $address->id);
+        $this->assertEquals('John', $address->firstName);
+    }
+
     function testCreate_withValidationErrors()
     {
         $customer = Braintree_Customer::createNoValidate();
@@ -180,6 +237,60 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
 
         $errors = $result->errors->forKey('creditCard')->forKey('billingAddress')->onAttribute('base');
         $this->assertEquals(Braintree_Error_Codes::ADDRESS_INCONSISTENT_COUNTRY, $errors[0]->code);
+    }
+
+    function testCreate_withVenmoSdkPaymentMethodCode()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'venmoSdkPaymentMethodCode' => Braintree_Test_VenmoSdk::generateTestPaymentMethodCode("378734493671000")
+        ));
+        $this->assertTrue($result->success);
+        $this->assertEquals("378734", $result->creditCard->bin);
+    }
+
+    function testCreate_with_invalid_venmoSdkPaymentMethodCode()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'venmoSdkPaymentMethodCode' => Braintree_Test_VenmoSdk::getInvalidPaymentMethodCode()
+        ));
+        $this->assertFalse($result->success);
+        $errors = $result->errors->forKey('creditCard')->onAttribute('venmoSdkPaymentMethodCode');
+        $this->assertEquals($errors[0]->code, Braintree_Error_Codes::CREDIT_CARD_INVALID_VENMO_SDK_PAYMENT_METHOD_CODE);
+
+    }
+
+    function testCreate_with_venmoSdkSession()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'number' => '5105105105105100',
+            'expirationDate' => '05/12',
+            'options' => array(
+                'venmoSdkSession' => Braintree_Test_VenmoSdk::getTestSession()
+            )
+        ));
+        $this->assertTrue($result->success);
+        $this->assertTrue($result->creditCard->isVenmoSdk());
+    }
+
+    function testCreate_with_invalidVenmoSdkSession()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'number' => '5105105105105100',
+            'expirationDate' => '05/12',
+            'options' => array(
+                'venmoSdkSession' => Braintree_Test_VenmoSdk::getInvalidTestSession()
+            )
+        ));
+        $this->assertTrue($result->success);
+        $this->assertFalse($result->creditCard->isVenmoSdk());
     }
 
     function testCreateNoValidate_throwsIfValidationsFail()
@@ -390,6 +501,27 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
         $this->assertEquals($creditCard->token, $transaction->creditCardDetails->token);
     }
 
+    function testSaleNoValidate_createsASaleUsingGivenTokenAndCvv()
+    {
+        $customer = Braintree_Customer::createNoValidate(array(
+            'creditCard' => array(
+                'number' => '5105105105105100',
+                'expirationDate' => '05/12'
+            )
+        ));
+        $creditCard = $customer->creditCards[0];
+        $transaction = Braintree_CreditCard::saleNoValidate($creditCard->token, array(
+            'amount' => '100.00',
+            'creditCard' => array(
+                'cvv' => '301'
+            )
+        ));
+        $this->assertEquals('100.00', $transaction->amount);
+        $this->assertEquals($customer->id, $transaction->customerDetails->id);
+        $this->assertEquals($creditCard->token, $transaction->creditCardDetails->token);
+        $this->assertEquals('S', $transaction->cvvResponseCode);
+    }
+
     function testSaleNoValidate_throwsIfInvalid()
     {
         $customer = Braintree_Customer::createNoValidate(array(
@@ -475,14 +607,14 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
     function testExpiringBetween()
     {
         $collection = Braintree_CreditCard::expiringBetween(
-            mktime(0, 0, 0, 1, 1, 2009),
-            mktime(23, 59, 59, 12, 31, 2009)
+            mktime(0, 0, 0, 1, 1, 2010),
+            mktime(23, 59, 59, 12, 31, 2010)
         );
         $this->assertTrue($collection->maximumCount() > 1);
 
         $arr = array();
         foreach($collection as $creditCard) {
-            $this->assertEquals('2009', $creditCard->expirationYear);
+            $this->assertEquals('2010', $creditCard->expirationYear);
             array_push($arr, $creditCard->token);
         }
         $uniqueCreditCardTokens = array_unique(array_values($arr));
@@ -492,8 +624,8 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
     function testExpiringBetween_parsesCreditCardDetailsUnderTransactionsCorrectly()
     {
         $collection = Braintree_CreditCard::expiringBetween(
-            mktime(0, 0, 0, 1, 1, 2009),
-            mktime(23, 59, 59, 12, 31, 2009)
+            mktime(0, 0, 0, 1, 1, 2010),
+            mktime(23, 59, 59, 12, 31, 2010)
         );
         $this->assertTrue($collection->maximumCount() > 1);
 
@@ -562,6 +694,18 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
     {
         $this->setExpectedException('Braintree_Exception_NotFound');
         Braintree_CreditCard::find('invalid-token');
+    }
+
+    function testFind_throwsUsefulErrorMessagesWhenEmpty()
+    {
+        $this->setExpectedException('InvalidArgumentException', 'expected credit card id to be set');
+        Braintree_CreditCard::find('');
+    }
+
+    function testFind_throwsUsefulErrorMessagesWhenInvalid()
+    {
+        $this->setExpectedException('InvalidArgumentException', '@ is an invalid credit card id');
+        Braintree_CreditCard::find('@');
     }
 
     function testUpdate()
@@ -865,6 +1009,146 @@ class Braintree_CreditCardTest extends PHPUnit_Framework_TestCase
             $trData
         );
     }
-}
-?>
 
+    function testPrepaidCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::PREPAID,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::PREPAID_YES, $result->creditCard->prepaid);
+    }
+
+    function testCommercialCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::COMMERCIAL,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::COMMERCIAL_YES, $result->creditCard->commercial);
+    }
+
+    function testDebitCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::DEBIT,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::DEBIT_YES, $result->creditCard->debit);
+    }
+
+    function testPayrollCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::PAYROLL,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::PAYROLL_YES, $result->creditCard->payroll);
+    }
+
+    function testHealthCareCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::HEALTHCARE,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::HEALTHCARE_YES, $result->creditCard->healthcare);
+    }
+
+    function testDurbinRegulatedCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::DURBIN_REGULATED,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::DURBIN_REGULATED_YES, $result->creditCard->durbinRegulated);
+    }
+
+    function testCountryOfIssuanceCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::COUNTRY_OF_ISSUANCE,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals("USA", $result->creditCard->countryOfIssuance);
+    }
+
+    function testIssuingBankCard()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::ISSUING_BANK,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals("NETWORK ONLY", $result->creditCard->issuingBank);
+    }
+
+    function testNegativeCardTypeIndicators()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::NO,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::PREPAID_NO, $result->creditCard->prepaid);
+        $this->assertEquals(Braintree_CreditCard::DURBIN_REGULATED_NO, $result->creditCard->durbinRegulated);
+        $this->assertEquals(Braintree_CreditCard::PAYROLL_NO, $result->creditCard->payroll);
+        $this->assertEquals(Braintree_CreditCard::DEBIT_NO, $result->creditCard->debit);
+        $this->assertEquals(Braintree_CreditCard::HEALTHCARE_NO, $result->creditCard->healthcare);
+        $this->assertEquals(Braintree_CreditCard::COMMERCIAL_NO, $result->creditCard->commercial);
+    }
+
+    function testUnknownCardTypeIndicators()
+    {
+        $customer = Braintree_Customer::createNoValidate();
+        $result = Braintree_CreditCard::create(array(
+            'customerId' => $customer->id,
+            'cardholderName' => 'Cardholder',
+            'number' => Braintree_CreditCardNumbers_CardTypeIndicators::UNKNOWN,
+            'expirationDate' => '05/12',
+            'options' => array('verifyCard' => true)
+        ));
+        $this->assertEquals(Braintree_CreditCard::PREPAID_UNKNOWN, $result->creditCard->prepaid);
+        $this->assertEquals(Braintree_CreditCard::DURBIN_REGULATED_UNKNOWN, $result->creditCard->durbinRegulated);
+        $this->assertEquals(Braintree_CreditCard::PAYROLL_UNKNOWN, $result->creditCard->payroll);
+        $this->assertEquals(Braintree_CreditCard::DEBIT_UNKNOWN, $result->creditCard->debit);
+        $this->assertEquals(Braintree_CreditCard::HEALTHCARE_UNKNOWN, $result->creditCard->healthcare);
+        $this->assertEquals(Braintree_CreditCard::COMMERCIAL_UNKNOWN, $result->creditCard->commercial);
+        $this->assertEquals(Braintree_CreditCard::COUNTRY_OF_ISSUANCE_UNKNOWN, $result->creditCard->countryOfIssuance);
+        $this->assertEquals(Braintree_CreditCard::ISSUING_BANK_UNKNOWN, $result->creditCard->issuingBank);
+    }
+}

@@ -8,11 +8,26 @@ set_include_path(
 );
 
 require_once "Braintree.php";
+require_once "Braintree/CreditCardNumbers/CardTypeIndicators.php";
+require_once "Braintree/CreditCardDefaults.php";
 
-Braintree_Configuration::environment('development');
-Braintree_Configuration::merchantId('integration_merchant_id');
-Braintree_Configuration::publicKey('integration_public_key');
-Braintree_Configuration::privateKey('integration_private_key');
+function integrationMerchantConfig()
+{
+    Braintree_Configuration::environment('development');
+    Braintree_Configuration::merchantId('integration_merchant_id');
+    Braintree_Configuration::publicKey('integration_public_key');
+    Braintree_Configuration::privateKey('integration_private_key');
+}
+
+function testMerchantConfig()
+{
+    Braintree_Configuration::environment('development');
+    Braintree_Configuration::merchantId('test_merchant_id');
+    Braintree_Configuration::publicKey('test_public_key');
+    Braintree_Configuration::privateKey('test_private_key');
+}
+
+integrationMerchantConfig();
 
 date_default_timezone_set("UTC");
 
@@ -26,6 +41,11 @@ class Braintree_TestHelper
     public static function nonDefaultMerchantAccountId()
     {
         return 'sandbox_credit_card_non_default';
+    }
+
+    public static function nonDefaultSubMerchantAccountId()
+    {
+        return 'sandbox_sub_merchant_account';
     }
 
     public static function createViaTr($regularParams, $trParams)
@@ -55,7 +75,7 @@ class Braintree_TestHelper
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         $response = curl_exec($curl);
         curl_close($curl);
-        preg_match('/Location: .*\?(.*)/', $response, $match);
+        preg_match('/Location: .*\?(.*)/i', $response, $match);
         return trim($match[1]);
     }
 
@@ -80,6 +100,27 @@ class Braintree_TestHelper
         }
         return false;
     }
-}
 
-?>
+    public static function assertPrintable($object)
+    {
+        " " . $object;
+    }
+
+    public static function settle($transactionId)
+    {
+        Braintree_Http::put('/transactions/' . $transactionId . '/settle');
+    }
+
+    public static function escrow($transactionId)
+    {
+        Braintree_Http::put('/transactions/' . $transactionId . '/escrow');
+    }
+
+
+    public static function nowInEastern()
+    {
+        $eastern = new DateTimeZone('America/New_York');
+        $now = new DateTime('now', $eastern);
+        return $now->format('Y-m-d');
+    }
+}

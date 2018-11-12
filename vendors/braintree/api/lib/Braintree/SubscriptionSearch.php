@@ -16,9 +16,19 @@ class Braintree_SubscriptionSearch
         return new Braintree_TextNode('id');
     }
 
+    static function inTrialPeriod()
+    {
+        return new Braintree_MultipleValueNode('in_trial_period', array(true, false));
+    }
+
     static function merchantAccountId()
     {
         return new Braintree_MultipleValueNode('merchant_account_id');
+    }
+
+    static function nextBillingDate()
+    {
+        return new Braintree_RangeNode('next_billing_date');
     }
 
     static function planId()
@@ -40,6 +50,11 @@ class Braintree_SubscriptionSearch
             Braintree_Subscription::PAST_DUE,
             Braintree_Subscription::PENDING
         ));
+    }
+
+    static function transactionId()
+    {
+        return new Braintree_TextNode('transaction_id');
     }
 
     static function ids()

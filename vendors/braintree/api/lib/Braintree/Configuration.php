@@ -23,7 +23,7 @@ class Braintree_Configuration extends Braintree
      * Braintree API version to use
      * @access public
      */
-     const API_VERSION =  2;
+     const API_VERSION =  3;
 
     /**
      * @var array array of config properties
@@ -218,27 +218,21 @@ class Braintree_Configuration extends Braintree
      * @param none
      * @return string filepath
      */
-    public static function caFile()
+    public static function caFile($sslPath = NULL)
     {
-        $sslPath = DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR .
+        $sslPath = $sslPath ? $sslPath : DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR .
                    'ssl' . DIRECTORY_SEPARATOR;
 
-        switch(self::environment()) {
-         case 'production':
-             $caPath = realpath(
-                 dirname(__FILE__) .
-                 $sslPath .  'www_braintreegateway_com.ca.crt'
-             );
-             break;
-         case 'qa':
-         case 'sandbox':
-         default:
-             $caPath = realpath(
-                 dirname(__FILE__) .
-                 $sslPath . 'sandbox_braintreegateway_com.ca.crt'
-             );
-             break;
+        $caPath = realpath(
+            dirname(__FILE__) .
+            $sslPath .  'api_braintreegateway_com.ca.crt'
+        );
+
+        if (!file_exists($caPath))
+        {
+            throw new Braintree_Exception_SSLCaFileNotFound();
         }
+
         return $caPath;
     }
 
@@ -283,13 +277,13 @@ class Braintree_Configuration extends Braintree
     {
         switch(self::environment()) {
          case 'production':
-             $serverName = 'www.braintreegateway.com';
+             $serverName = 'api.braintreegateway.com';
              break;
          case 'qa':
              $serverName = 'qa.braintreegateway.com';
              break;
          case 'sandbox':
-             $serverName = 'sandbox.braintreegateway.com';
+             $serverName = 'api.sandbox.braintreegateway.com';
              break;
          case 'development':
          default:
@@ -330,7 +324,7 @@ class Braintree_Configuration extends Braintree
      * log message to default logger
      *
      * @param string $message
-     * 
+     *
      */
     public static function logMessage($message)
     {

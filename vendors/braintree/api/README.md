@@ -49,9 +49,12 @@ The following PHP extensions are required:
 
 ## Documentation
 
- * [Official documentation](http://www.braintreepaymentsolutions.com/docs/php)
+ * [Official documentation](http://www.braintreepayments.com/docs/php)
+
+## Open Source Attribution
+
+A list of open source projects that help power Braintree can be found [here](https://www.braintreepayments.com/developers/open-source).
 
 ## License
 
 See the LICENSE file.
-

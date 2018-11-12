@@ -12,12 +12,12 @@
  *
  * <b>== More information ==</b>
  *
- * For more detailed information on Customers, see {@link http://www.braintreepaymentsolutions.com/gateway/customer-api http://www.braintreepaymentsolutions.com/gateway/customer-api}
+ * For more detailed information on Customers, see {@link http://www.braintreepayments.com/gateway/customer-api http://www.braintreepaymentsolutions.com/gateway/customer-api}
  *
  * @package    Braintree
  * @category   Resources
  * @copyright  2010 Braintree Payment Solutions
- * 
+ *
  * @property-read array  $addresses
  * @property-read string $company
  * @property-read string $createdAt
@@ -36,21 +36,26 @@ class Braintree_Customer extends Braintree
 {
     public static function all()
     {
-        $response = braintree_http::post('/customers/advanced_search_ids');
+        $response = Braintree_Http::post('/customers/advanced_search_ids');
         $pager = array(
             'className' => __CLASS__,
             'classMethod' => 'fetch',
-            'methodArgs' => array()
+            'methodArgs' => array(array())
             );
 
         return new Braintree_ResourceCollection($response, $pager);
     }
 
-    public static function fetch($ids)
+    public static function fetch($query, $ids)
     {
-        $response = braintree_http::post('/customers/advanced_search', array('search' => array('ids' => $ids)));
+        $criteria = array();
+        foreach ($query as $term) {
+            $criteria[$term->name] = $term->toparam();
+        }
+        $criteria["ids"] = Braintree_CustomerSearch::ids()->in($ids)->toparam();
+        $response = Braintree_Http::post('/customers/advanced_search', array('search' => $criteria));
 
-        return braintree_util::extractattributeasarray(
+        return Braintree_Util::extractattributeasarray(
             $response['customers'],
             'customer'
         );
@@ -145,7 +150,8 @@ class Braintree_Customer extends Braintree
         unset($creditCardSignature['customerId']);
         $signature = array(
             'id', 'company', 'email', 'fax', 'firstName',
-            'lastName', 'phone', 'website',
+            'lastName', 'phone', 'website', 'deviceData',
+            'deviceSessionId', 'fraudMerchantId',
             array('creditCard' => $creditCardSignature),
             array('customFields' => array('_anyKey_')),
             );
@@ -168,7 +174,8 @@ class Braintree_Customer extends Braintree
 
         $signature = array(
             'id', 'company', 'email', 'fax', 'firstName',
-            'lastName', 'phone', 'website',
+            'lastName', 'phone', 'website', 'deviceData',
+            'deviceSessionId', 'fraudMerchantId',
             array('creditCard' => $creditCardSignature),
             array('customFields' => array('_anyKey_')),
             );
@@ -276,6 +283,35 @@ class Braintree_Customer extends Braintree
     {
         $result = self::sale($customerId, $transactionAttribs);
         return self::returnObjectOrThrowException('Braintree_Transaction', $result);
+    }
+
+    /**
+     * Returns a ResourceCollection of customers matching the search query.
+     *
+     * If <b>query</b> is a string, the search will be a basic search.
+     * If <b>query</b> is a hash, the search will be an advanced search.
+     * For more detailed information and examples, see {@link http://www.braintreepayments.com/gateway/customer-api#searching http://www.braintreepaymentsolutions.com/gateway/customer-api}
+     *
+     * @param mixed $query search query
+     * @param array $options options such as page number
+     * @return object Braintree_ResourceCollection
+     * @throws InvalidArgumentException
+     */
+    public static function search($query)
+    {
+        $criteria = array();
+        foreach ($query as $term) {
+            $criteria[$term->name] = $term->toparam();
+        }
+
+        $response = Braintree_Http::post('/customers/advanced_search_ids', array('search' => $criteria));
+        $pager = array(
+            'className' => __CLASS__,
+            'classMethod' => 'fetch',
+            'methodArgs' => array($query)
+            );
+
+        return new Braintree_ResourceCollection($response, $pager);
     }
 
     /**
@@ -393,18 +429,8 @@ class Braintree_Customer extends Braintree
      */
     public function  __toString()
     {
-        foreach ($this->_attributes AS $key => $value) {
-            if (is_array($value)) {
-                foreach ($value AS $obj) {
-                    $pAttrib .= sprintf('%s', $obj);
-                }
-            } else {
-                $pAttrib = $value;
-            }
-            $printableAttribs[$key] = sprintf('%s', $pAttrib);
-        }
         return __CLASS__ . '[' .
-                Braintree_Util::implodeAssociativeArray($printableAttribs) .']';
+                Braintree_Util::attributesToString($this->_attributes) .']';
     }
 
     /**
