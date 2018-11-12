@@ -44,8 +44,8 @@ class Braintree_Address extends Braintree
     public static function create($attribs)
     {
         Braintree_Util::verifyKeys(self::createSignature(), $attribs);
-        $customerId = isset($attribs['customerId']) ? 
-            $attribs['customerId'] : 
+        $customerId = isset($attribs['customerId']) ?
+            $attribs['customerId'] :
             null;
 
         self::_validateCustomerId($customerId);
@@ -104,7 +104,9 @@ class Braintree_Address extends Braintree
      */
     public static function find($customerOrId, $addressId)
     {
+
         $customerId = self::_determineCustomerId($customerOrId);
+        self::_validateId($addressId);
 
         try {
             $response = Braintree_Http::get(
@@ -215,8 +217,8 @@ class Braintree_Address extends Braintree
      */
     public function  __toString()
     {
-        $objOutput = Braintree_Util::implodeAssociativeArray($this->_attributes);
-        return __CLASS__ . '[' . $objOutput . ']';
+        return __CLASS__ . '[' .
+                Braintree_Util::attributesToString($this->_attributes) .']';
     }
 
     /**
@@ -241,7 +243,7 @@ class Braintree_Address extends Braintree
      */
     private static function _validateId($id = null)
     {
-        if (empty($id)) {
+        if (empty($id) || trim($id) == "") {
             throw new InvalidArgumentException(
             'expected address id to be set'
             );
@@ -261,7 +263,7 @@ class Braintree_Address extends Braintree
      */
     private static function _validateCustomerId($id = null)
     {
-        if (empty($id)) {
+        if (empty($id) || trim($id) == "") {
             throw new InvalidArgumentException(
             'expected customer id to be set'
             );

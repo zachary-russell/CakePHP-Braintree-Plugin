@@ -43,6 +43,7 @@ class Braintree_TransactionSearch
 
 	static function amount()                     { return new Braintree_RangeNode("amount"); }
 	static function authorizedAt()               { return new Braintree_RangeNode("authorizedAt"); }
+	static function authorizationExpiredAt()     { return new Braintree_RangeNode("authorizationExpiredAt"); }
 	static function createdAt()                  { return new Braintree_RangeNode("createdAt"); }
 	static function failedAt()                   { return new Braintree_RangeNode("failedAt"); }
 	static function gatewayRejectedAt()          { return new Braintree_RangeNode("gatewayRejectedAt"); }
@@ -50,6 +51,7 @@ class Braintree_TransactionSearch
 	static function settledAt()                  { return new Braintree_RangeNode("settledAt"); }
 	static function submittedForSettlementAt()   { return new Braintree_RangeNode("submittedForSettlementAt"); }
 	static function voidedAt()                   { return new Braintree_RangeNode("voidedAt"); }
+	static function disbursementDate()           { return new Braintree_RangeNode("disbursementDate"); }
 
     static function merchantAccountId()          { return new Braintree_MultipleValueNode("merchant_account_id"); }
 
@@ -100,13 +102,14 @@ class Braintree_TransactionSearch
     static function status()
     {
         return new Braintree_MultipleValueNode("status", array(
+            Braintree_Transaction::AUTHORIZATION_EXPIRED,
             Braintree_Transaction::AUTHORIZING,
             Braintree_Transaction::AUTHORIZED,
             Braintree_Transaction::GATEWAY_REJECTED,
             Braintree_Transaction::FAILED,
             Braintree_Transaction::PROCESSOR_DECLINED,
             Braintree_Transaction::SETTLED,
-            Braintree_Transaction::SETTLEMENT_FAILED,
+            Braintree_Transaction::SETTLING,
             Braintree_Transaction::SUBMITTED_FOR_SETTLEMENT,
             Braintree_Transaction::VOIDED
         ));

@@ -29,6 +29,7 @@
  * Braintree_Transaction::saleNoValidate(array(
  *    'amount'      => '100.00',
  *    'orderId'    => '123',
+ *    'channel'    => 'MyShoppingCardProvider',
  *    'creditCard' => array(
  *         // if token is omitted, the gateway will generate a token
  *         'token' => 'credit_card_123',
@@ -45,7 +46,7 @@
  *     'email' => 'dan@example.com',
  *     'phone' => '419-555-1234',
  *     'fax' => '419-555-1235',
- *     'website' => 'http://braintreepaymentsolutions.com'
+ *     'website' => 'http://braintreepayments.com'
  *    ),
  *    'billing'    => array(
  *      'firstName' => 'Carl',
@@ -139,7 +140,7 @@
  *
  * <b>== More information ==</b>
  *
- * For more detailed information on Transactions, see {@link http://www.braintreepaymentsolutions.com/gateway/transaction-api http://www.braintreepaymentsolutions.com/gateway/transaction-api}
+ * For more detailed information on Transactions, see {@link http://www.braintreepayments.com/gateway/transaction-api http://www.braintreepaymentsolutions.com/gateway/transaction-api}
  *
  * @package    Braintree
  * @category   Resources
@@ -163,21 +164,31 @@
  * @property-read array  $statusHistory array of StatusDetails objects
  * @property-read string $type transaction type
  * @property-read string $updatedAt transaction updated timestamp
+ * @property-read object $disbursementDetails populated when transaction is disbursed
  *
  */
 
 final class Braintree_Transaction extends Braintree
 {
     // Transaction Status
+    const AUTHORIZATION_EXPIRED    = 'authorization_expired';
     const AUTHORIZING              = 'authorizing';
     const AUTHORIZED               = 'authorized';
     const GATEWAY_REJECTED         = 'gateway_rejected';
     const FAILED                   = 'failed';
     const PROCESSOR_DECLINED       = 'processor_declined';
     const SETTLED                  = 'settled';
-    const SETTLEMENT_FAILED        = 'settlement_failed';
+    const SETTLING                 = 'settling';
     const SUBMITTED_FOR_SETTLEMENT = 'submitted_for_settlement';
     const VOIDED                   = 'voided';
+    const UNRECOGNIZED             = 'unrecognized';
+
+    // Transaction Escrow Status
+    const ESCROW_HOLD_PENDING    = 'hold_pending';
+    const ESCROW_HELD            = 'held';
+    const ESCROW_RELEASE_PENDING = 'release_pending';
+    const ESCROW_RELEASED        = 'released';
+    const ESCROW_REFUNDED        = 'refunded';
 
     // Transaction Types
     const SALE   = 'sale';
@@ -185,18 +196,25 @@ final class Braintree_Transaction extends Braintree
 
     // Transaction Created Using
     const FULL_INFORMATION = 'full_information';
-    const TOKEN = 'token';
+    const TOKEN            = 'token';
 
     // Transaction Sources
-    const API = 'api';
+    const API           = 'api';
     const CONTROL_PANEL = 'control_panel';
-    const RECURRING = 'recurring';
+    const RECURRING     = 'recurring';
 
     // Gateway Rejection Reason
-    const AVS = 'avs';
-    const AVS_AND_CVV = 'avs_and_cvv';
-    const CVV = 'cvv';
-    const DUPLICATE = 'duplicate';
+    const AVS          = 'avs';
+    const AVS_AND_CVV  = 'avs_and_cvv';
+    const CVV          = 'cvv';
+    const DUPLICATE    = 'duplicate';
+    const FRAUD        = 'fraud';
+
+    public static function cloneTransaction($transactionId, $attribs)
+    {
+        Braintree_Util::verifyKeys(self::cloneSignature(), $attribs);
+        return self::_doCreate('/transactions/' . $transactionId . '/clone', array('transactionClone' => $attribs));
+    }
 
     /**
      * @ignore
@@ -253,6 +271,11 @@ final class Braintree_Transaction extends Braintree
                 '/transactions/all/create_via_transparent_redirect_request';
     }
 
+    public static function cloneSignature()
+    {
+        return array('amount', 'channel', array('options' => array('submitForSettlement')));
+    }
+
     /**
      * creates a full array signature of a valid gateway request
      * @return array gateway request signature format
@@ -260,7 +283,9 @@ final class Braintree_Transaction extends Braintree
     public static function createSignature()
     {
         return array(
-            'amount', 'customerId', 'merchantAccountId', 'orderId', 'paymentMethodToken', 'type',
+            'amount', 'customerId', 'merchantAccountId', 'orderId', 'channel', 'paymentMethodToken', 'deviceSessionId',
+            'purchaseOrderNumber', 'recurring', 'shippingAddressId', 'taxAmount', 'taxExempt', 'type', 'venmoSdkPaymentMethodCode',
+            'serviceFeeAmount', 'deviceData', 'fraudMerchantId', 'billingAddressId',
             array('creditCard' =>
                 array('token', 'cardholderName', 'cvv', 'expirationDate', 'expirationMonth', 'expirationYear', 'number'),
             ),
@@ -285,13 +310,17 @@ final class Braintree_Transaction extends Braintree
             ),
             array('options' =>
                 array(
+                    'holdInEscrow',
                     'storeInVault',
+                    'storeInVaultOnSuccess',
                     'submitForSettlement',
                     'addBillingAddressToPaymentMethod',
+                    'venmoSdkSession',
                     'storeShippingAddressInVault'),
             ),
             array('customFields' => array('_anyKey_')
             ),
+            array('descriptor' => array('name', 'phone'))
         );
     }
 
@@ -365,7 +394,7 @@ final class Braintree_Transaction extends Braintree
      *
      * If <b>query</b> is a string, the search will be a basic search.
      * If <b>query</b> is a hash, the search will be an advanced search.
-     * For more detailed information and examples, see {@link http://www.braintreepaymentsolutions.com/gateway/transaction-api#searching http://www.braintreepaymentsolutions.com/gateway/transaction-api}
+     * For more detailed information and examples, see {@link http://www.braintreepayments.com/gateway/transaction-api#searching http://www.braintreepaymentsolutions.com/gateway/transaction-api}
      *
      * @param mixed $query search query
      * @param array $options options such as page number
@@ -379,14 +408,18 @@ final class Braintree_Transaction extends Braintree
             $criteria[$term->name] = $term->toparam();
         }
 
-        $response = braintree_http::post('/transactions/advanced_search_ids', array('search' => $criteria));
-        $pager = array(
-            'className' => __CLASS__,
-            'classMethod' => 'fetch',
-            'methodArgs' => array($query)
-            );
+        $response = Braintree_Http::post('/transactions/advanced_search_ids', array('search' => $criteria));
+        if (array_key_exists('searchResults', $response)) {
+            $pager = array(
+                'className' => __CLASS__,
+                'classMethod' => 'fetch',
+                'methodArgs' => array($query)
+                );
 
-        return new Braintree_ResourceCollection($response, $pager);
+            return new Braintree_ResourceCollection($response, $pager);
+        } else {
+            throw new Braintree_Exception_DownForMaintenance();
+        }
     }
 
     public static function fetch($query, $ids)
@@ -396,9 +429,9 @@ final class Braintree_Transaction extends Braintree
             $criteria[$term->name] = $term->toparam();
         }
         $criteria["ids"] = Braintree_TransactionSearch::ids()->in($ids)->toparam();
-        $response = braintree_http::post('/transactions/advanced_search', array('search' => $criteria));
+        $response = Braintree_Http::post('/transactions/advanced_search', array('search' => $criteria));
 
-        return braintree_util::extractattributeasarray(
+        return Braintree_Util::extractattributeasarray(
             $response['creditCardTransactions'],
             'transaction'
         );
@@ -443,6 +476,39 @@ final class Braintree_Transaction extends Braintree
         return self::returnObjectOrThrowException(__CLASS__, $result);
     }
 
+    public static function holdInEscrow($transactionId)
+    {
+        self::_validateId($transactionId);
+
+        $response = Braintree_Http::put(
+            '/transactions/' . $transactionId . '/hold_in_escrow',
+            array()
+        );
+        return self::_verifyGatewayResponse($response);
+    }
+
+    public static function releaseFromEscrow($transactionId)
+    {
+        self::_validateId($transactionId);
+
+        $response = Braintree_Http::put(
+            '/transactions/' . $transactionId . '/release_from_escrow',
+            array()
+        );
+        return self::_verifyGatewayResponse($response);
+    }
+
+    public static function cancelRelease($transactionId)
+    {
+        self::_validateId($transactionId);
+
+        $response = Braintree_Http::put(
+            '/transactions/' . $transactionId . '/cancel_release',
+            array()
+        );
+        return self::_verifyGatewayResponse($response);
+    }
+
 
     /**
      * sets instance properties from an array of values
@@ -456,33 +522,68 @@ final class Braintree_Transaction extends Braintree
     {
         $this->_attributes = $transactionAttribs;
 
-        $this->_set('creditCardDetails',
+        if (isset($transactionAttribs['creditCard'])) {
+            $this->_set('creditCardDetails',
                 new Braintree_Transaction_CreditCardDetails(
-                $transactionAttribs['creditCard']
+                    $transactionAttribs['creditCard']
                 )
             );
-        $this->_set('customerDetails',
+        }
+
+        if (isset($transactionAttribs['customer'])) {
+            $this->_set('customerDetails',
                 new Braintree_Transaction_CustomerDetails(
-                $transactionAttribs['customer']
+                    $transactionAttribs['customer']
                 )
             );
-        $this->_set('billingDetails',
+        }
+
+        if (isset($transactionAttribs['billing'])) {
+            $this->_set('billingDetails',
                 new Braintree_Transaction_AddressDetails(
-                $transactionAttribs['billing']
+                    $transactionAttribs['billing']
                 )
             );
-        $this->_set('shippingDetails',
+        }
+
+        if (isset($transactionAttribs['shipping'])) {
+            $this->_set('shippingDetails',
                 new Braintree_Transaction_AddressDetails(
-                $transactionAttribs['shipping']
+                    $transactionAttribs['shipping']
                 )
             );
+        }
+
+        if (isset($transactionAttribs['subscription'])) {
+            $this->_set('subscriptionDetails',
+                new Braintree_Transaction_SubscriptionDetails(
+                    $transactionAttribs['subscription']
+                )
+            );
+        }
+
+        if (isset($transactionAttribs['descriptor'])) {
+            $this->_set('descriptor',
+                new Braintree_Descriptor(
+                    $transactionAttribs['descriptor']
+                )
+            );
+        }
+
+        if (isset($transactionAttribs['disbursementDetails'])) {
+            $this->_set('disbursementDetails',
+                new Braintree_DisbursementDetails($transactionAttribs['disbursementDetails'])
+            );
+        }
 
         $statusHistory = array();
-        foreach ($transactionAttribs['statusHistory'] AS $history) {
-            $statusHistory[] = new Braintree_Transaction_StatusDetails($history);
+        if (isset($transactionAttribs['statusHistory'])) {
+            foreach ($transactionAttribs['statusHistory'] AS $history) {
+                $statusHistory[] = new Braintree_Transaction_StatusDetails($history);
+            }
         }
-        $this->_set('statusHistory', $statusHistory);
 
+        $this->_set('statusHistory', $statusHistory);
 
         $addOnArray = array();
         if (isset($transactionAttribs['addOns'])) {
@@ -513,18 +614,12 @@ final class Braintree_Transaction extends Braintree
             'createdAt', 'creditCardDetails', 'customerDetails'
             );
 
+        $displayAttributes = array();
         foreach ($display AS $attrib) {
-            if (is_array($this->$attrib)) {
-                foreach ($this->$attrib AS $obj) {
-                    $pAttrib .= sprintf('%s', $obj);
-                }
-            } else {
-                $pAttrib = $this->$attrib;
-            }
-            $printableAttribs[$attrib] = sprintf('%s', $pAttrib);
+            $displayAttributes[$attrib] = $this->$attrib;
         }
         return __CLASS__ . '[' .
-                Braintree_Util::implodeAssociativeArray($printableAttribs) .']';
+                Braintree_Util::attributesToString($displayAttributes) .']';
     }
 
     public static function refund($transactionId, $amount = null)
@@ -559,6 +654,10 @@ final class Braintree_Transaction extends Braintree
         else {
             return Braintree_Customer::find($customerId);
         }
+    }
+
+    public function isDisbursed() {
+        return $this->disbursementDetails->isValid();
     }
 
     /**

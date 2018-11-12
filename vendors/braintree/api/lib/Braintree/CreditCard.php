@@ -12,8 +12,8 @@
  *
  * <b>== More information ==</b>
  *
- * For more detailed information on CreditCards, see {@link http://www.braintreepaymentsolutions.com/gateway/credit-card-api http://www.braintreepaymentsolutions.com/gateway/credit-card-api}<br />
- * For more detailed information on CreditCard verifications, see {@link http://www.braintreepaymentsolutions.com/gateway/credit-card-verification-api http://www.braintreepaymentsolutions.com/gateway/credit-card-verification-api}
+ * For more detailed information on CreditCards, see {@link http://www.braintreepayments.com/gateway/credit-card-api http://www.braintreepaymentsolutions.com/gateway/credit-card-api}<br />
+ * For more detailed information on CreditCard verifications, see {@link http://www.braintreepayments.com/gateway/credit-card-verification-api http://www.braintreepaymentsolutions.com/gateway/credit-card-verification-api}
  *
  * @package    Braintree
  * @category   Resources
@@ -28,6 +28,7 @@
  * @property-read string $expirationDate
  * @property-read string $expirationMonth
  * @property-read string $expirationYear
+ * @property-read string $imageUrl
  * @property-read string $last4
  * @property-read string $maskedNumber
  * @property-read string $token
@@ -53,6 +54,33 @@ class Braintree_CreditCard extends Braintree
 	// Credit card origination location
 	const INTERNATIONAL = "international";
 	const US            = "us";
+
+    const PREPAID_YES = 'Yes';
+    const PREPAID_NO = 'No';
+    const PREPAID_UNKNOWN = 'Unknown';
+
+    const PAYROLL_YES = 'Yes';
+    const PAYROLL_NO = 'No';
+    const PAYROLL_UNKNOWN = 'Unknown';
+
+    const HEALTHCARE_YES = 'Yes';
+    const HEALTHCARE_NO = 'No';
+    const HEALTHCARE_UNKNOWN = 'Unknown';
+
+    const DURBIN_REGULATED_YES = 'Yes';
+    const DURBIN_REGULATED_NO = 'No';
+    const DURBIN_REGULATED_UNKNOWN = 'Unknown';
+
+    const DEBIT_YES = 'Yes';
+    const DEBIT_NO = 'No';
+    const DEBIT_UNKNOWN = 'Unknown';
+
+    const COMMERCIAL_YES = 'Yes';
+    const COMMERCIAL_NO = 'No';
+    const COMMERCIAL_UNKNOWN = 'Unknown';
+
+    const COUNTRY_OF_ISSUANCE_UNKNOWN = "Unknown";
+    const ISSUING_BANK_UNKNOWN = "Unknown";
 
     public static function create($attribs)
     {
@@ -126,7 +154,7 @@ class Braintree_CreditCard extends Braintree
     {
         $response = Braintree_Http::post("/payment_methods/all/expired", array('search' => array('ids' => $ids)));
 
-        return braintree_util::extractattributeasarray(
+        return Braintree_Util::extractattributeasarray(
             $response['paymentMethods'],
             'creditCard'
         );
@@ -343,6 +371,16 @@ class Braintree_CreditCard extends Braintree
         return $this->expired;
     }
 
+    /**
+     * checks whether the card is associated with venmo sdk
+     *
+     * @return boolean
+     */
+    public function isVenmoSdk()
+    {
+        return $this->venmoSdk;
+    }
+
     public static function delete($token)
     {
         self::_validateId($token);
@@ -392,51 +430,66 @@ class Braintree_CreditCard extends Braintree
         return !($otherCreditCard instanceof Braintree_CreditCard) ? false : $this->token === $otherCreditCard->token;
     }
 
-   public static function createSignature()
-   {
-        return array(
-            'customerId', 'cardholderName', 'cvv', 'number',
-            'expirationDate', 'expirationMonth', 'expirationYear', 'token',
-            array('options' => array('makeDefault', 'verificationMerchantAccountId', 'verifyCard')),
-            array(
-                'billingAddress' => array(
-                    'firstName',
-                    'lastName',
-                    'company',
-                    'countryCodeAlpha2',
-                    'countryCodeAlpha3',
-                    'countryCodeNumeric',
-                    'countryName',
-                    'extendedAddress',
-                    'locality',
-                    'region',
-                    'postalCode',
-                    'streetAddress'
-                ),
-            ),
-        );
-   }
-   public static function updateSignature()
-   {
-        $signature = self::createSignature();
+    private static function baseOptions()
+    {
+        return array('makeDefault', 'verificationMerchantAccountId', 'verifyCard', 'venmoSdkSession');
+    }
 
-        $updateExistingBillingSignature = array(
-            array(
-                'options' => array(
-                    'updateExisting'
-                )
-            )
-        );
+    private static function baseSignature($options)
+    {
+         return array(
+             'billingAddressId', 'cardholderName', 'cvv', 'number', 'deviceSessionId',
+             'expirationDate', 'expirationMonth', 'expirationYear', 'token', 'venmoSdkPaymentMethodCode',
+             'deviceData', 'fraudMerchantId',
+             array('options' => $options),
+             array(
+                 'billingAddress' => array(
+                     'firstName',
+                     'lastName',
+                     'company',
+                     'countryCodeAlpha2',
+                     'countryCodeAlpha3',
+                     'countryCodeNumeric',
+                     'countryName',
+                     'extendedAddress',
+                     'locality',
+                     'region',
+                     'postalCode',
+                     'streetAddress'
+                 ),
+             ),
+         );
+    }
 
-        foreach($signature AS $key => $value) {
-            if(is_array($value) and array_key_exists('billingAddress', $value)) {
-                $signature[$key]['billingAddress'] = array_merge_recursive($value['billingAddress'], $updateExistingBillingSignature);
-            }
-        }
+    public static function createSignature()
+    {
+        $options = self::baseOptions();
+        $options[] = "failOnDuplicatePaymentMethod";
+        $signature = self::baseSignature($options);
+        $signature[] = 'customerId';
+        return $signature;
+    }
 
-        // return all but the customerId (the first element)
-        return array_slice($signature, 1);
-   }
+    public static function updateSignature()
+    {
+         $signature = self::baseSignature(self::baseOptions());
+
+         $updateExistingBillingSignature = array(
+             array(
+                 'options' => array(
+                     'updateExisting'
+                 )
+             )
+         );
+
+         foreach($signature AS $key => $value) {
+             if(is_array($value) and array_key_exists('billingAddress', $value)) {
+                 $signature[$key]['billingAddress'] = array_merge_recursive($value['billingAddress'], $updateExistingBillingSignature);
+             }
+         }
+
+         return $signature;
+    }
 
     /**
      * sends the create request to the gateway
@@ -460,8 +513,8 @@ class Braintree_CreditCard extends Braintree
      */
     public function  __toString()
     {
-        $objOutput = Braintree_Util::implodeAssociativeArray($this->_attributes);
-        return __CLASS__ . '[' . $objOutput . ']';
+        return __CLASS__ . '[' .
+                Braintree_Util::attributesToString($this->_attributes) .']';
     }
 
     /**
@@ -474,12 +527,12 @@ class Braintree_CreditCard extends Braintree
     {
         if (empty($token)) {
            throw new InvalidArgumentException(
-                   'expected address id to be set'
+                   'expected credit card id to be set'
                    );
         }
         if (!preg_match('/^[0-9A-Za-z_-]+$/', $token)) {
             throw new InvalidArgumentException(
-                    $token . ' is an invalid address id.'
+                    $token . ' is an invalid credit card id.'
                     );
         }
     }

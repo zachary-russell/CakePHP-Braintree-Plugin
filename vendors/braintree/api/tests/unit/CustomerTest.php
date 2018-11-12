@@ -18,10 +18,22 @@ class Braintree_CustomerTest extends PHPUnit_Framework_TestCase
                 $this->assertEquals(array(
                     'makeDefault',
                     'verificationMerchantAccountId',
-                    'verifyCard'
+                    'verifyCard',
+                    'venmoSdkSession'
                 ), $value['options']);
             }
         }
     }
+
+    function testFindErrorsOnBlankId()
+    {
+        $this->setExpectedException('InvalidArgumentException');
+        Braintree_Customer::find('');
+    }
+
+    function testFindErrorsOnWhitespaceId()
+    {
+        $this->setExpectedException('InvalidArgumentException');
+        Braintree_Customer::find('\t');
+    }
 }
-?>

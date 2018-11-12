@@ -139,10 +139,18 @@ class Braintree_UtilTest extends PHPUnit_Framework_TestCase
         Braintree_Util::verifyKeys($signature, $badData);
 	}
 
+    function testVerifyKeys_arrayAsValue()
+    {
+        $signature = array('key');
+        $data = array('key' => array('value'));
+        $this->setExpectedException('InvalidArgumentException');
+        Braintree_Util::verifyKeys($signature, $data);
+    }
+
     function testVerifyKeys()
     {
         $signature = array(
-                'amount', 'customerId', 'orderId', 'paymentMethodToken', 'type',
+                'amount', 'customerId', 'orderId', 'channel', 'paymentMethodToken', 'type',
 
                 array('creditCard'   =>
                     array('token', 'cvv', 'expirationDate', 'number'),
@@ -205,4 +213,3 @@ class Braintree_UtilTest extends PHPUnit_Framework_TestCase
         Braintree_Util::verifyKeys($signature, $userKeys);
     }
 }
-?>

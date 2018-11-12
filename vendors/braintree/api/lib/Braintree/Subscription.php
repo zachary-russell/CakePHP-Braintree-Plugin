@@ -4,7 +4,7 @@
  *
  * <b>== More information ==</b>
  *
- * For more detailed information on Subscriptions, see {@link http://www.braintreepaymentsolutions.com/gateway/subscription-api http://www.braintreepaymentsolutions.com/gateway/subscription-api}
+ * For more detailed information on Subscriptions, see {@link http://www.braintreepayments.com/gateway/subscription-api http://www.braintreepaymentsolutions.com/gateway/subscription-api}
  *
  * PHP Version 5
  *
@@ -39,6 +39,8 @@ class Braintree_Subscription extends Braintree
 
     public static function find($id)
     {
+        self::_validateId($id);
+
         try {
             $response = Braintree_Http::get('/subscriptions/' . $id);
             return self::factory($response['subscription']);
@@ -55,7 +57,8 @@ class Braintree_Subscription extends Braintree
             $criteria[$term->name] = $term->toparam();
         }
 
-        $response = braintree_http::post('/subscriptions/advanced_search_ids', array('search' => $criteria));
+
+        $response = Braintree_Http::post('/subscriptions/advanced_search_ids', array('search' => $criteria));
         $pager = array(
             'className' => __CLASS__,
             'classMethod' => 'fetch',
@@ -126,12 +129,8 @@ class Braintree_Subscription extends Braintree
                 'trialDuration',
                 'trialDurationUnit',
                 'trialPeriod',
-                array(
-                    'options' => array(
-                        'doNotInheritAddOnsOrDiscounts',
-                        'startImmediately'
-                    )
-                ),
+                array('descriptor' => array('name', 'phone')),
+                array('options' => array('doNotInheritAddOnsOrDiscounts', 'startImmediately')),
             ),
             self::_addOnDiscountSignature()
         );
@@ -143,6 +142,7 @@ class Braintree_Subscription extends Braintree
             array(
                 'merchantAccountId', 'numberOfBillingCycles', 'paymentMethodToken', 'planId',
                 'id', 'neverExpires', 'price',
+                array('descriptor' => array('name', 'phone')),
                 array('options' => array('prorateCharges', 'replaceAllAddOnsAndDiscounts', 'revertSubscriptionOnProrationFailure')),
             ),
             self::_addOnDiscountSignature()
@@ -192,6 +192,10 @@ class Braintree_Subscription extends Braintree
         }
         $this->_attributes['discounts'] = $discountArray;
 
+        if (isset($attributes['descriptor'])) {
+            $this->_set('descriptor', new Braintree_Descriptor($attributes['descriptor']));
+        }
+
         $transactionArray = array();
         if (isset($attributes['transactions'])) {
             foreach ($attributes['transactions'] AS $transaction) {
@@ -201,6 +205,21 @@ class Braintree_Subscription extends Braintree
         $this->_attributes['transactions'] = $transactionArray;
     }
 
+    /**
+     * @ignore
+     */
+    private static function _validateId($id = null) {
+        if (empty($id)) {
+           throw new InvalidArgumentException(
+                   'expected subscription id to be set'
+                   );
+        }
+        if (!preg_match('/^[0-9A-Za-z_-]+$/', $id)) {
+            throw new InvalidArgumentException(
+                    $id . ' is an invalid subscription id.'
+                    );
+        }
+    }
     /**
      * @ignore
      */
@@ -217,6 +236,21 @@ class Braintree_Subscription extends Braintree
             );
         } else if (isset($response['apiErrorResponse'])) {
             return new Braintree_Result_Error($response['apiErrorResponse']);
+        } else {
+            throw new Braintree_Exception_Unexpected(
+            "Expected subscription, transaction, or apiErrorResponse"
+            );
         }
     }
+
+    /**
+     * returns a string representation of the customer
+     * @return string
+     */
+    public function  __toString()
+    {
+        return __CLASS__ . '[' .
+                Braintree_Util::attributesToString($this->_attributes) .']';
+    }
+
 }
